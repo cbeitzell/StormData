@@ -1,0 +1,245 @@
+---
+title: "Weather Events Affecting Health and Economy"
+output: html_document
+---
+##Synopsis
+In this report I aim to examine which weather events have been most harmful to human health and economy, stemming from data from years 1950 to 2011.  I hypothesis is that large covering events such as hurricanes and tornados will contribute to the most damaging events.  To investigate this I downloaded data from the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database.
+
+##Data Processing
+From the [NOAA database](https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2) I obtained the storm data for the dates between 1950 and 2011.
+
+###Read in data
+First the bz2 file was downloaded and unzipped to the csv file, to be read.
+```{r,echo=TRUE}
+require(reshape2)
+destURL <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+download.file(destURL,"./repdata-data-StormData.csv.bz2")
+dataInit <- read.csv(bzfile("./repdata-data-StormData.csv.bz2"))
+```
+
+Exmaining the data showed that it is completed, and contains no data which is not avaiable.
+
+```{r, echo=TRUE}
+dataInit[is.na(dataInit$FATALITIES),]
+dataInit[is.na(dataInit$INJURIES),]
+dataInit[is.na(dataInit$PROPDMG),]
+dataInit[is.na(dataInit$CROPDMG),]
+```
+
+Next I subsetted the data to gain only the columns I wanted to examine, and transformed the property and crop damage costs so everything is in Thousands of dollars.  Concerning the time range: only data from 1996 to 2011 was used.  According to the [Storm Events Database](https://www.ncdc.noaa.gov/stormevents/details.jsp?type=eventtype), it wasn't until 1996 that all 48 event types were being colelcted.  Before that time it was mainly torandoo, thunderstorms, an wind.  I felt that to accurately show which events answered the questions, that all events should be fairly recorded and not be given extra weight.
+
+```{r, echo=TRUE}
+newData <- dataInit[as.Date(dataInit$BGN_DATE,'%m/%d/%Y') >= as.Date("1/1/1996","%m/%d/%Y"),]
+rm(dataInit)
+newData <- subset(newData,select = c("EVTYPE","FATALITIES","INJURIES","PROPDMG","PROPDMGEXP","CROPDMG","CROPDMGEXP"))
+
+newData[newData$PROPDMGEXP == "B",]$PROPDMG <- newData[newData$PROPDMGEXP == "B",]$PROPDMG * 1000000
+newData[newData$PROPDMGEXP == "b",]$PROPDMG <- newData[newData$PROPDMGEXP == "b",]$PROPDMG * 1000000
+newData[newData$PROPDMGEXP == "M",]$PROPDMG <- newData[newData$PROPDMGEXP == "M",]$PROPDMG * 1000
+newData[newData$PROPDMGEXP == "m",]$PROPDMG <- newData[newData$PROPDMGEXP == "m",]$PROPDMG * 1000
+newData[newData$CROPDMGEXP == "B",]$CROPDMG <- newData[newData$CROPDMGEXP == "B",]$CROPDMG * 1000000
+newData[newData$CROPDMGEXP == "b",]$CROPDMG <- newData[newData$CROPDMGEXP == "b",]$CROPDMG * 1000000
+newData[newData$CROPDMGEXP == "M",]$CROPDMG <- newData[newData$CROPDMGEXP == "M",]$CROPDMG * 1000
+newData[newData$CROPDMGEXP == "m",]$CROPDMG <- newData[newData$CROPDMGEXP == "m",]$CROPDMG * 1000
+```
+
+The data is then subsetted to the final variables to be examined.  The data is melted to make to change it from wide to long format. 
+
+```{r, echo=TRUE}
+newData <- subset(newData,select = c("EVTYPE","FATALITIES","INJURIES","PROPDMG","CROPDMG"))
+mnewData <- melt(newData,id.vars = c("EVTYPE"))
+```
+
+Next I created a variable jsut to do some data checking.  It is cast back into the wide format and the sum function is run on the variables.
+
+```{r, echo=TRUE}
+checkData <- dcast(mnewData,EVTYPE ~ variable, sum)
+checkData <- checkData[!(checkData$FATALITIES == 0 & checkData$INJURIES == 0 & checkData$PROPDMG == 0 & checkData$CROPDMG == 0),]
+str(checkData)
+```
+
+There are `r length(unique(checkData$EVTYPE))` levels in the EVTYPE.  The [National Weather Service Instructions](https://www.ncdc.noaa.gov/stormevents/pd01016005curr.pdf) call for only 48 levels.  Some cleanup is necessary to fix typos and put events in the proper categories.  Looking at the checkData$EVTYPE variable, and comparing it to the descriptions found in the Instructions, I changed the event types to match the documentation found in chapater 7.  One events (OTHER) Was removed from the dataset as it contained several different events, and was too small to affect the overall answer.
+
+```{r, echo=TRUE}
+rm(checkData)
+mnewData$EVTYPE <- toupper(mnewData$EVTYPE)
+mnewData[grep("^THUNDER.*",mnewData$EVTYPE),]$EVTYPE <- "THUNDERSTORM WIND"
+mnewData[grep("^HURRICANE.*",mnewData$EVTYPE),]$EVTYPE <- "HURRICANE"
+mnewData[grep("^HIGH WIND.*",mnewData$EVTYPE),]$EVTYPE <- "HIGH WIND"
+mnewData[grep("^WINT.*",mnewData$EVTYPE),]$EVTYPE <- "WINTER WEATHER"
+
+mnewData[grep("^AVALANCHE.*",mnewData$EVTYPE),]$EVTYPE <- "AVALANCHE"
+mnewData[grep("^BLIZZARD.*",mnewData$EVTYPE),]$EVTYPE <- "BLIZZARD"
+mnewData[grep("^FALLING SNOW/ICE.*",mnewData$EVTYPE),]$EVTYPE <- "BLIZZARD"
+mnewData[grep("^COASTAL.*",mnewData$EVTYPE),]$EVTYPE <- "COASTAL FLOODING"
+mnewData[grep("^EROSION/CSTL FLOOD.*",mnewData$EVTYPE),]$EVTYPE <- "COASTAL FLOODING"
+mnewData[grep("^COLD.*",mnewData$EVTYPE),]$EVTYPE <- "COLD/WIND CHILL"
+mnewData[grep("EXTENDED COLD.*",mnewData$EVTYPE),]$EVTYPE <- "COLD/WIND CHILL"
+mnewData[grep("^BLACK ICE.*",mnewData$EVTYPE),]$EVTYPE <- "COLD/WIND CHILL"
+mnewData[grep("^DRY MICROBURST.*",mnewData$EVTYPE),]$EVTYPE <- "EXCESSIVE HEAT"
+mnewData[grep("^DAM BREAK.*",mnewData$EVTYPE),]$EVTYPE <- "FLOOD"
+mnewData[grep("^EXTREME COLD.*",mnewData$EVTYPE),]$EVTYPE <- "EXTREME COLD/WIND CHILL"
+mnewData[grep("^EXTREME WINDCHILL.*",mnewData$EVTYPE),]$EVTYPE <- "EXTREME COLD/WIND CHILL"
+mnewData[grep("^FLASH FLOOD.*",mnewData$EVTYPE),]$EVTYPE <- "FLASH FLOOD"
+mnewData[grep("^FLOOD.FLASH.FLOOD",mnewData$EVTYPE),]$EVTYPE <- "FLASH FLOOD"
+mnewData[grep("^.*FROST.*",mnewData$EVTYPE),]$EVTYPE <- "FROST/FREEZE"
+mnewData[grep("^AGRICULTURAL FREEZE.*",mnewData$EVTYPE),]$EVTYPE <- "FROST/FREEZE"
+mnewData[grep("^DAMAGING FREEZE$",mnewData$EVTYPE),]$EVTYPE <- "FROST/FREEZE"
+mnewData[grep("^HARD FREEZE.*",mnewData$EVTYPE),]$EVTYPE <- "FROST/FREEZE"
+mnewData[grep("^FREEZE$",mnewData$EVTYPE),]$EVTYPE <- "COLD/WIND CHILL"
+mnewData[grepl("^FREEZING(?!.*FOG).*",mnewData$EVTYPE,perl=TRUE),]$EVTYPE <- "WINTER STORM"
+
+mnewData[grep("^.*HIGH SURF.*",mnewData$EVTYPE),]$EVTYPE <- "HIGH SURF"
+mnewData[grep("^BEACH EROSION.*",mnewData$EVTYPE),]$EVTYPE <- "HIGH SURF"
+mnewData[grep("^ASTRONOMICAL HIGH TIDE.*",mnewData$EVTYPE),]$EVTYPE <- "HIGH SURF"
+mnewData[grep("^BLOWING DUST.*",mnewData$EVTYPE),]$EVTYPE <- "DUST STORM"
+mnewData[grep("^HAZARDOUS SURF.*",mnewData$EVTYPE),]$EVTYPE <- "HIGH SURF"
+mnewData[grep("^HEAT.*",mnewData$EVTYPE),]$EVTYPE <- "HEAT"
+mnewData[grep("^HEAVY RAIN.*",mnewData$EVTYPE),]$EVTYPE <- "HEAVY RAIN"
+mnewData[grep("^HEAVY SNOW.*",mnewData$EVTYPE),]$EVTYPE <- "HEAVY SNOW"
+mnewData[grep("^HEAVY SURF.*",mnewData$EVTYPE),]$EVTYPE <- "HIGH SURF"
+mnewData[grep("^HIGH SEA.*",mnewData$EVTYPE),]$EVTYPE <- "HIGH SURF"
+mnewData[grep("^HIGH SURF.*",mnewData$EVTYPE),]$EVTYPE <- "HIGH SURF"
+mnewData[grep("^HIGH SWELL.*",mnewData$EVTYPE),]$EVTYPE <- "HIGH SURF"
+mnewData[grep("^HIGH WATER.*",mnewData$EVTYPE),]$EVTYPE <- "HIGH SURF"
+mnewData[grep("^HYP.*EXPOSURE.*",mnewData$EVTYPE),]$EVTYPE <- "WINTER STORM"
+mnewData[grep("^IC.*",mnewData$EVTYPE),]$EVTYPE <- "ICE STORM"
+mnewData[grep("^LAKE.*EFFECT.*",mnewData$EVTYPE),]$EVTYPE <- "LAKE-EFFECT SNOW"
+mnewData[grep("^LAND.*",mnewData$EVTYPE),]$EVTYPE <- "DEBRIS FLOW"
+mnewData[grep("^LATE SEASON SNOW$",mnewData$EVTYPE),]$EVTYPE <- "WINTER WEATHER"
+mnewData[grep("^LIGHT FREEZING RAIN$",mnewData$EVTYPE),]$EVTYPE <- "WINTER WEATHER"
+mnewData[grep("^LIGHT SNOW.*$",mnewData$EVTYPE),]$EVTYPE <- "WINTER WEATHER"
+mnewData[grep("^MARINE ACCIDENT.*$",mnewData$EVTYPE),]$EVTYPE <- "MARINE THUNDERSTORM WIND"
+mnewData[grep("^MARINE TSTM WIND$",mnewData$EVTYPE),]$EVTYPE <- "MARINE THUNDERSTORM WIND"
+mnewData[grep("^.*MICROBURST$",mnewData$EVTYPE),]$EVTYPE <- "THUNDERSTORM WIND"
+mnewData[grep("^MIXED PRECIP.*$",mnewData$EVTYPE),]$EVTYPE <- "WINTER WEATHER"
+mnewData[grep("^MUD.*",mnewData$EVTYPE),]$EVTYPE <- "DEBRIS FLOW"
+mnewData[grep("^NON-SEVERE WIND DAMAGE$",mnewData$EVTYPE),]$EVTYPE <- "THUNDERSTORM WIND"
+mnewData[grep("^NON.TSTM WIND$",mnewData$EVTYPE),]$EVTYPE <- "MARINE THUNDERSTORM WIND"
+mnewData[grep("^HEAVY SEA.*",mnewData$EVTYPE),]$EVTYPE <- "HIGH SURF"
+mnewData[grep("^BLOWING SNOW.*",mnewData$EVTYPE),]$EVTYPE <- "BLIZZARD"
+mnewData[grep("^FOG.*",mnewData$EVTYPE),]$EVTYPE <- "DENSE FOG"
+mnewData[grep("^GRADIENT WIND.*",mnewData$EVTYPE),]$EVTYPE <- "TROPICAL DEPRESSION"
+mnewData[grep("^GUSTY WIND.*",mnewData$EVTYPE),]$EVTYPE <- "STRONG WIND"
+mnewData[grep("^BRUSH FIRE.*",mnewData$EVTYPE),]$EVTYPE <- "WILD FIRE"
+mnewData[grep("^EXCESSIVE SNOW.*",mnewData$EVTYPE),]$EVTYPE <- "HEAVY SNOW"
+mnewData[grep("^GLAZE$",mnewData$EVTYPE),]$EVTYPE <- "FREEZING FOG"
+
+mnewData[grep("^RAIN$",mnewData$EVTYPE),]$EVTYPE <- "HEAVY RAIN"
+mnewData[grep("^TORRENTIAL RAINFALL$",mnewData$EVTYPE),]$EVTYPE <- "HEAVY RAIN"
+mnewData[grep("^RAIN/SNOW$",mnewData$EVTYPE),]$EVTYPE <- "WINTER STORM"
+mnewData[grep("^RECORD HEAT$",mnewData$EVTYPE),]$EVTYPE <- "EXCESSIVE HEAT"
+mnewData[grep("^RIVER FLOOD.*$",mnewData$EVTYPE),]$EVTYPE <- "FLOOD"
+mnewData[grep("^TIDAL FLOODING.*$",mnewData$EVTYPE),]$EVTYPE <- "FLOOD"
+mnewData[grep("^ROCK SLIDE$",mnewData$EVTYPE),]$EVTYPE <- "DEBRIS FLOW"
+mnewData[grep("^ROUGH S.*$",mnewData$EVTYPE),]$EVTYPE <- "RIP CURRENT"
+mnewData[grep("^ROGUE WAVE$",mnewData$EVTYPE),]$EVTYPE <- "RIP CURRENT"
+mnewData[grep("^RIP CURR.*$",mnewData$EVTYPE),]$EVTYPE <- "RIP CURRENT"
+
+mnewData[grep("^SMALL HAIL$",mnewData$EVTYPE),]$EVTYPE <- "HAIL"
+mnewData[grep("^SNOW.*",mnewData$EVTYPE),]$EVTYPE <- "WINTER STORM"
+mnewData[grep("^STORM SURGE.*",mnewData$EVTYPE),]$EVTYPE <- "STORM SURGE/TIDE"
+mnewData[grep("^STRONG WIND.*",mnewData$EVTYPE),]$EVTYPE <- "STRONG WIND"
+mnewData[grep("^TYPHOON$",mnewData$EVTYPE),]$EVTYPE <- "HURRICANE"
+mnewData[grep("^UNSEASON.*COLD$",mnewData$EVTYPE),]$EVTYPE <- "COLD/WIND CHILL"
+mnewData[grep("^UNSEASON.*WARM$",mnewData$EVTYPE),]$EVTYPE <- "HEAT"
+
+mnewData[grep("^URBAN.*$",mnewData$EVTYPE),]$EVTYPE <- "FLOOD"
+mnewData[grep("^WARM.*$",mnewData$EVTYPE),]$EVTYPE <- "HEAT"
+mnewData[grep("^WHIRLWIND.*$",mnewData$EVTYPE),]$EVTYPE <- "THUNDERSTORM WIND"
+mnewData[grep("^WILD.*$",mnewData$EVTYPE),]$EVTYPE <- "WILDFIRE"
+mnewData[grep("^WIND AND WAVE$",mnewData$EVTYPE),]$EVTYPE <- "MARINE HIGH WIND"
+mnewData[grep("^WIND.*$",mnewData$EVTYPE),]$EVTYPE <- "HIGH WIND"
+mnewData[grep("^.*TSTM.*",mnewData$EVTYPE),]$EVTYPE <- "THUNDERSTORM WIND"
+mnewData[grep("^DOWNBURST$",mnewData$EVTYPE),]$EVTYPE <- "THUNDERSTORM WIND"
+mnewData[grep("^UNSEASONAL RAIN$",mnewData$EVTYPE),]$EVTYPE <- "HEAVY RAIN"
+mnewData[grep("^DROWNING$",mnewData$EVTYPE),]$EVTYPE <- "HEAVY RAIN"
+mnewData <- mnewData[!(mnewData$EVTYPE == "OTHER"),]
+
+```
+
+The data is cast back into wide format, and summing the variables to get totals on each. Finally rows where all variables are zero are removed.  
+
+This data set which will be used from analysis.
+
+```{r, echo=TRUE}
+newData <- dcast(mnewData,EVTYPE ~ variable, sum)
+newData <- newData[!(newData$FATALITIES == 0 & newData$INJURIES == 0 & newData$PROPDMG == 0 & newData$CROPDMG == 0),]
+```
+
+##Results
+
+##Across the United States, which types of events are most harmful with respect to population health?
+
+TO answer this question we will take the calculated date. We are really interested in total numbers, as the data has been summed, we merely need to extract the  fatality and injury variables and examine them.   
+
+In addition we can create a total for each, to get a sense of the overall numbers.  For this analysis we will remove anything that has both  variables set to zero.  These events do not contribute to the answer for the question.
+
+```{r,echo=TRUE}
+# extract the fatality and injury variables, and remove zero rows.
+harm <- subset(newData,select = c("EVTYPE","FATALITIES", "INJURIES"))
+harm <- harm[!(harm$FATALITIES == 0 & harm$INJURIES == 0),]
+
+# create a total variable
+harm <- cbind(harm, harm$FATALITIES + harm$INJURIES)
+names(harm)[4] <- "Total"
+```
+
+From that we can look at how the data sits.  Since we are looking for the top event, we will focus on the upper percentile.
+
+```{r,echo=TRUE}
+quantile(harm$Total)
+quantile(harm$FATALITIES)
+quantile(harm$INJURIES)
+```
+
+We can see that in the 75 percentile, the numbers are.
+Total: `r quantile(harm$Total)[4]`
+Injuries: `r quantile(harm$INJURIES)[4]`
+Fatalities: `r quantile(harm$FATALITIES)[4]`
+
+Looking at the data ordered by the Total can help us start to see the top offenders, but looking at the fatality column we can see that the top offenders get over shadowed by injuries.
+
+```{r,echo=TRUE}
+harm[order(harm$Total),]
+```
+
+We could set a weight to the fatality column as to make the total a stronger representation of the overall.  However I do not believe that would illuminate the issue of some events being more fatalistic.
+
+To compare the two, we took the top 75% of fatalites and injuries and examined that data.
+
+```{r,echo=TRUE}
+# get event type names, and create a unique data frame.
+fharm <- harm[harm$FATALITIES > 246,]$EVTYPE
+iharm <- harm[harm$INJURIES > 1239,]$EVTYPE
+harm <- harm[harm$EVTYPE %in% unique(c(fharm,iharm)),]
+
+# cleanup
+rm(fharm)
+rm(iharm)
+```
+
+Plotting the two sets of data, we can see the events causing health problems.
+
+```{r,echo=TRUE}
+par(mfrow = c(1,3),oma=c(0,0,2,0))
+ with(harm, {
+barplot(FATALITIES,names=SEQ,las=2, ylab = "Fatalities",col = rainbow(13))
+barplot(INJURIES,names=SEQ,las=2, ylab = "Injuries",col = rainbow(13))
+plot(1, type="n", axes=F, xlab="", ylab="")
+legend("topleft",lwd = 1,col = rainbow(13), legend = paste(seq(1:13),"-",nharm$EVTYPE),bty = "n")
+title("Figure 1 - Fatality and Injury",outer = TRUE)
+})
+ rm(harm)
+```
+
+There is no question, Torandos casue the most problems, as the number one event for injuries and second for fatalies, which with such a high injury rate, we expecting the fatalities to be just as high.  Exessive Heat was number one for fatalies but only third for injuries.  While these two events were interesting they were not as interesting as two others.
+
+Extreme Cold/Wind Chill and Flash Flooding were two events which if we had looked at the data strictly from a totalling mechanism, it could have been missed.  The injury numbers for those events are low enough to make it easy to dismiss.  However the fatality numbers make it much more important, especially with Flash Flooding being the third casue of death.
+
+Looking at it in reverse, Flooding is sixth in the casue of death.  While that shouldn't be taken ligthly, it would be easy to focus on other events.  The injuries data places it second, and should help better realize what is needed for those events.
+
+Overall the events which are most harmful to the population health: EXCESSIVE HEAT, EXTREME COLD/WIND CHILL, FLASH FLOOD, FLOOD,  HEAT,   HIGH WIND, HURRICANE,LIGHTNING,RIP CURRENT,THUNDERSTORM WIND,TORNADO,WILDFIRE,WINTER WEATHER
+
+
+

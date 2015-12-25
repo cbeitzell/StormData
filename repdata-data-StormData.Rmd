@@ -63,6 +63,7 @@ There are `r length(unique(checkData$EVTYPE))` levels in the EVTYPE.  The [Natio
 ```{r, echo=TRUE}
 rm(checkData)
 mnewData$EVTYPE <- toupper(mnewData$EVTYPE)
+mnewData$EVTYPE <- gsub("^\\s+|\\s+$", "", mnewData$EVTYPE) 
 mnewData[grep("^THUNDER.*",mnewData$EVTYPE),]$EVTYPE <- "THUNDERSTORM WIND"
 mnewData[grep("^HURRICANE.*",mnewData$EVTYPE),]$EVTYPE <- "HURRICANE"
 mnewData[grep("^HIGH WIND.*",mnewData$EVTYPE),]$EVTYPE <- "HIGH WIND"
@@ -169,7 +170,7 @@ newData <- newData[!(newData$FATALITIES == 0 & newData$INJURIES == 0 & newData$P
 
 ##Results
 
-##Across the United States, which types of events are most harmful with respect to population health?
+###Across the United States, which types of events are most harmful with respect to population health?
 
 TO answer this question we will take the calculated date. We are really interested in total numbers, as the data has been summed, we merely need to extract the  fatality and injury variables and examine them.   
 
@@ -177,60 +178,58 @@ In addition we can create a total for each, to get a sense of the overall number
 
 ```{r,echo=TRUE}
 # extract the fatality and injury variables, and remove zero rows.
-harm <- subset(newData,select = c("EVTYPE","FATALITIES", "INJURIES"))
+
+harm <- newData[2:3]
+rownames(harm) <- newData$EVTYPE
 harm <- harm[!(harm$FATALITIES == 0 & harm$INJURIES == 0),]
 
-# create a total variable
-harm <- cbind(harm, harm$FATALITIES + harm$INJURIES)
-names(harm)[4] <- "Total"
 ```
 
 From that we can look at how the data sits.  Since we are looking for the top event, we will focus on the upper percentile.
 
-```{r,echo=TRUE}
-quantile(harm$Total)
-quantile(harm$FATALITIES)
-quantile(harm$INJURIES)
-```
-
 We can see that in the 75 percentile, the numbers are.
-Total: `r quantile(harm$Total)[4]`
+Total: `r quantile(harm$FATALITIES + harm$INJURIES)[4]`
 Injuries: `r quantile(harm$INJURIES)[4]`
 Fatalities: `r quantile(harm$FATALITIES)[4]`
 
-Looking at the data ordered by the Total can help us start to see the top offenders, but looking at the fatality column we can see that the top offenders get over shadowed by injuries.
+Looking at the data ordered by the Total can help us start to see the top offenders, but looking at the fatality column we can see that the top offenders such as "RIP CURRENT" and  "FLASH FLOOD" get set at a lower rank due to the injuries variable.
 
 ```{r,echo=TRUE}
-harm[order(harm$Total),]
+# look at the tail data.
+harm <- harm[order(harm$INJURIES + harm$FATALITIES),]
+tail(harm,n=13)
 ```
 
-We could set a weight to the fatality column as to make the total a stronger representation of the overall.  However I do not believe that would illuminate the issue of some events being more fatalistic.
+In order to answer the question we have to decide if fatalities have more weight that injuries in the context of "most harmful to the population".  For this analysis we shall treat them differently and combine the data to look at a whole.
 
-To compare the two, we took the top 75% of fatalites and injuries and examined that data.
+To compare the two, we combined the top 75% of fatalites and injuries and extracted the unique rows.
 
-```{r,echo=TRUE}
-# get event type names, and create a unique data frame.
-fharm <- harm[harm$FATALITIES > 246,]$EVTYPE
-iharm <- harm[harm$INJURIES > 1239,]$EVTYPE
-harm <- harm[harm$EVTYPE %in% unique(c(fharm,iharm)),]
+```{r,echo=TRUE,fig.height=6}
+# create a matrix of the top 75% fatalities and injuries
+tharm <- t(unique(rbind(harm[harm$INJURIES >= quantile(harm$INJURIES)[4],],
+         harm[harm$FATALITIES >= quantile(harm$FATALITIES)[4],])))
 
-# cleanup
-rm(fharm)
-rm(iharm)
+
+# set the margins for long value names, and plot with a barplot.
+op <- par(mar = c(10,4,4,2) + 0.5)
+barplot(tharm,col=c("darkblue","red"),legend = rownames(tharm),ylim = c(0,8000), las=2)
+par(op)
+
 ```
 
 Plotting the two sets of data, we can see the events causing health problems.
 
 ```{r,echo=TRUE}
-par(mfrow = c(1,3),oma=c(0,0,2,0))
- with(harm, {
-barplot(FATALITIES,names=SEQ,las=2, ylab = "Fatalities",col = rainbow(13))
-barplot(INJURIES,names=SEQ,las=2, ylab = "Injuries",col = rainbow(13))
-plot(1, type="n", axes=F, xlab="", ylab="")
-legend("topleft",lwd = 1,col = rainbow(13), legend = paste(seq(1:13),"-",nharm$EVTYPE),bty = "n")
-title("Figure 1 - Fatality and Injury",outer = TRUE)
-})
- rm(harm)
+
+colnames(tharm)[11] <- "EXT COLD/WIND CHILL"
+op <- par(mar = c(10,4,4,2) + 0.5)
+barplot(tharm,col=c("darkblue","red"),legend = rownames(tharm),ylim = c(0,8000), las=2)
+par(op)
+rm(harm)
+rm(mharm)
+rownames(harm[harm$FATALITIES >= quantile(harm$FATALITIES)[4],])
+rownames(harm[harm$INJURIES >= quantile(harm$INJURIES)[4],])
+rownames(harm[harm$INJURIES + harm$FATALITIES >= quantile(harm$INJURIES + harm$FATALITIES)[4],])
 ```
 
 There is no question, Torandos casue the most problems, as the number one event for injuries and second for fatalies, which with such a high injury rate, we expecting the fatalities to be just as high.  Exessive Heat was number one for fatalies but only third for injuries.  While these two events were interesting they were not as interesting as two others.
@@ -241,5 +240,42 @@ Looking at it in reverse, Flooding is sixth in the casue of death.  While that s
 
 Overall the events which are most harmful to the population health: EXCESSIVE HEAT, EXTREME COLD/WIND CHILL, FLASH FLOOD, FLOOD,  HEAT,   HIGH WIND, HURRICANE,LIGHTNING,RIP CURRENT,THUNDERSTORM WIND,TORNADO,WILDFIRE,WINTER WEATHER
 
+### Across the United States, which types of events have the greatest economic consequences?
 
+To answer this question we take the crop and property damage variables from the data.  The data had been converted to thousands of dollars.  As most totals will be in the millions and billions, we will convert the values to millions for the sake of the results.
 
+```{r,echo=TRUE}
+# extract the property and crop damage variablesand remove any rows wil all zeros.
+
+econ <- newData[4:5]
+rownames(econ) <- newData$EVTYPE
+econ <- econ[!(econ$PROPDMG == 0 & econ$CROPDMG == 0),]
+econ$PROPDMG <- econ$PROPDMG / 1000
+econ$CROPDMG <- econ$CROPDMG / 1000
+```
+
+To see which events have the greatest economic consequences, we can start by looking at the upper echelon of the total values of property and crop damage.
+
+```{r, echo=TRUE}
+quantile(econ$PROPDMG + econ$CROPDMG)
+```
+
+To answer the question we will look at damages equaling or exceeding `r quantile(econ$PROPDMG + econ$CROPDMG)[4]` million dollars.
+
+```{r,echo=TRUE}
+econ <- cbind(econ,econ$PROPDMG + econ$CROPDMG)
+econ <- econ[econ[3] > quantile(econ[,3])[4],][1:2]
+```
+
+```{r,echo=TRUE,fig.height=6}
+
+tecon <- t(econ)
+op <- par(mar = c(10,4,4,2) + 0.5)
+barplot(tecon,col=c("darkblue","red"),
+        legend = rownames(tecon),las=2)
+par(op)
+
+rownames(econ[econ$CROPDMG + econ$PROPDMG >= quantile(econ$CROPDMG + econ$PROPDMG)[4],])
+rownames(econ[econ$CROPDMG >= quantile(econ$CROPDMG)[4],])
+
+```
